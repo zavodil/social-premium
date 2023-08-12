@@ -2,16 +2,12 @@ use crate::*;
 
 use near_sdk::serde_json::{Map, Value};
 
-const SOCIAL_DB_ACCOUNT_ID: &str = "social.near";
-const SOCIAL_PREMIUM_ACCOUNT_ID: &str = "premium.social.near";
-
 pub const GAS_FOR_SOCIAL_GET: Gas = Gas(Gas::ONE_TERA.0 * 10);
 pub const GAS_FOR_SOCIAL_SET: Gas = Gas(Gas::ONE_TERA.0 * 40);
 pub const GAS_FOR_AFTER_SOCIAL_GET: Gas = Gas(Gas::ONE_TERA.0 * 80);
 pub const DEPOSIT_FOR_SOCIAL_SET: Balance = 50_000_000_000_000_000_000_000;
 pub const MIN_DEPOSIT: Balance = 1_000_000_000_000_000_000_000_000;
 
-const YEAR_IN_MS: u128 = 31556926000;
 
 #[derive(Serialize, Deserialize, Default)]
 #[serde(crate = "near_sdk::serde")]
@@ -94,33 +90,6 @@ impl SocialPremium {
 }
 
 impl SocialPremium {
-    pub(crate) fn internal_get_subscription(&self, subscription_name: &SubscriptionName) -> Subscription {
-        Subscription::from(
-            self.subscriptions
-                .get(subscription_name)
-                .expect("ERR_SUBSCRIPTION_NOT_FOUND"),
-        )
-    }
-
-    fn get_subscription_price(&self, subscription: &Subscription, is_wholesale: bool) -> u128 {
-        if is_wholesale {
-            subscription.price
-        } else {
-            subscription.price_wholesale
-        }
-    }
-
-    pub(crate) fn get_subscription_purchased_period_ms(
-        &self,
-        subscription: &Subscription,
-        amount: u128,
-    ) -> u128 {
-        let price =
-            self.get_subscription_price(subscription, amount > subscription.price_wholesale);
-
-        (U256::from(amount) * U256::from(YEAR_IN_MS) / U256::from(price)).as_u128()
-    }
-
     fn internal_set_subscription_holder(
         &mut self,
         subscription_name: SubscriptionName,
@@ -201,8 +170,3 @@ impl SocialPremium {
     }
 }
 
-use uint::construct_uint;
-construct_uint! {
-    /// 256-bit unsigned integer.
-    pub struct U256(4);
-}

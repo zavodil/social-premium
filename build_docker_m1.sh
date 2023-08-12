@@ -26,5 +26,5 @@ docker start $DOCKER_NAME
 docker exec -it $DOCKER_NAME /bin/bash -c "rustup toolchain install stable-2021-10-21; rustup default stable-2021-10-21; rustup target add wasm32-unknown-unknown; cargo build --target wasm32-unknown-unknown --manifest-path ./../$FOLDER/Cargo.toml --release"
 
 mkdir -p res
-cp $DIR/target/wasm32-unknown-unknown/release/contract.wasm $DIR/res/release.wasm
+cp $DIR/target/wasm32-unknown-unknown/release/contract.wasm $DIR/dist/release.wasm
 

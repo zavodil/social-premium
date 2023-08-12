@@ -7,6 +7,9 @@ use near_sdk::{
     AccountId, Balance, BorshStorageKey, Gas, PanicOnDefault, Promise, PromiseError,
 };
 
+const SOCIAL_DB_ACCOUNT_ID: &str = "social.near";
+const SOCIAL_PREMIUM_ACCOUNT_ID: &str = "premium.social.near";
+
 mod social;
 mod subscription;
 mod utils;
@@ -14,10 +17,10 @@ mod utils;
 use crate::subscription::*;
 use crate::social::*;
 
-
 type SubscriptionName = String;
 
 const SOCIAL_PREMIUM_TREASURY_ACCOUNT_ID: &str = "treasury.premium.social.near";
+const YEAR_IN_MS: u128 = 31556926000;
 
 #[derive(BorshSerialize, BorshStorageKey)]
 enum StorageKey {
@@ -123,4 +126,39 @@ impl SocialPremium {
         let subscription = self.internal_get_subscription(&name);
         U128::from(self.get_subscription_purchased_period_ms(&subscription, amount.0))
     }
+}
+
+impl SocialPremium {
+    pub(crate) fn internal_get_subscription(&self, subscription_name: &SubscriptionName) -> Subscription {
+        Subscription::from(
+            self.subscriptions
+                .get(subscription_name)
+                .expect("ERR_SUBSCRIPTION_NOT_FOUND"),
+        )
+    }
+
+    fn get_subscription_price(&self, subscription: &Subscription, is_wholesale: bool) -> u128 {
+        if is_wholesale {
+            subscription.price
+        } else {
+            subscription.price_wholesale
+        }
+    }
+
+    pub fn get_subscription_purchased_period_ms(
+        &self,
+        subscription: &Subscription,
+        amount: u128,
+    ) -> u128 {
+        let price =
+            self.get_subscription_price(subscription, amount > subscription.price_wholesale);
+
+        (U256::from(amount) * U256::from(YEAR_IN_MS) / U256::from(price)).as_u128()
+    }
+}
+
+use uint::construct_uint;
+construct_uint! {
+    /// 256-bit unsigned integer.
+    pub struct U256(4);
 }
