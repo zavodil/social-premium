@@ -2,13 +2,8 @@ use crate::*;
 
 use near_sdk::serde_json::{Map, Value};
 
-/*
 const SOCIAL_DB_ACCOUNT_ID: &str = "social.near";
 const SOCIAL_PREMIUM_ACCOUNT_ID: &str = "premium.social.near";
- */
-
-pub const SOCIAL_DB_ACCOUNT_ID: &str = "v1.social08.testnet";
-pub const SOCIAL_PREMIUM_ACCOUNT_ID: &str = "test_alice.testnet";
 
 pub const GAS_FOR_SOCIAL_GET: Gas = Gas(Gas::ONE_TERA.0 * 10);
 pub const GAS_FOR_SOCIAL_SET: Gas = Gas(Gas::ONE_TERA.0 * 40);
