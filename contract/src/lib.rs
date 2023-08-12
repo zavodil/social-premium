@@ -4,7 +4,7 @@ use near_sdk::{
     collections::UnorderedMap,
     env, ext_contract, near_bindgen,
     serde::{Deserialize, Serialize},
-    AccountId, Balance, BorshStorageKey, Gas, PanicOnDefault, Promise, PromiseError,
+    AccountId, Balance, BorshStorageKey, Gas, PanicOnDefault, Promise, PromiseError, ONE_YOCTO,
 };
 
 const SOCIAL_DB_ACCOUNT_ID: &str = "social.near";
@@ -14,8 +14,8 @@ mod social;
 mod subscription;
 mod utils;
 
-use crate::subscription::*;
 use crate::social::*;
+use crate::subscription::*;
 
 type SubscriptionName = String;
 
@@ -49,7 +49,7 @@ impl SocialPremium {
     }
 
     #[payable]
-    pub fn purchase(&mut self, name: String, receiver_id: Option<AccountId>) -> Promise {
+    pub fn purchase(&mut self, name: SubscriptionName, receiver_id: Option<AccountId>) -> Promise {
         let receiver_id = receiver_id.unwrap_or(env::predecessor_account_id());
         let deposit = env::attached_deposit();
         assert!(deposit >= MIN_DEPOSIT, "Deposit {} required", MIN_DEPOSIT);
@@ -65,7 +65,34 @@ impl SocialPremium {
             .then(
                 ext_self::ext(env::current_account_id())
                     .with_static_gas(GAS_FOR_AFTER_SOCIAL_GET)
-                    .after_social_get(receiver_id, name, U128::from(deposit)),
+                    .purchase_after_social_get(receiver_id, name, U128::from(deposit)),
+            )
+    }
+
+    #[payable]
+    pub fn transfer(&mut self, name: SubscriptionName, receiver_id: AccountId) -> Promise {
+        assert_eq!(env::attached_deposit(), ONE_YOCTO, "ERR_ONE_YOCTO_REQUIRED");
+
+        let sender_id = env::predecessor_account_id();
+
+        let keys: Vec<String> = vec![
+            format!(
+                "{}/badge/{}/accounts/{}",
+                SOCIAL_PREMIUM_ACCOUNT_ID, name, sender_id
+            ),
+            format!(
+                "{}/badge/{}/accounts/{}",
+                SOCIAL_PREMIUM_ACCOUNT_ID, name, receiver_id
+            ),
+        ];
+
+        ext_social::ext(AccountId::new_unchecked(SOCIAL_DB_ACCOUNT_ID.to_string()))
+            .with_static_gas(GAS_FOR_SOCIAL_GET)
+            .get(keys, None)
+            .then(
+                ext_self::ext(env::current_account_id())
+                    .with_static_gas(GAS_FOR_AFTER_SOCIAL_GET)
+                    .transfer_after_social_get(sender_id, receiver_id, name),
             )
     }
 
@@ -129,7 +156,10 @@ impl SocialPremium {
 }
 
 impl SocialPremium {
-    pub(crate) fn internal_get_subscription(&self, subscription_name: &SubscriptionName) -> Subscription {
+    pub(crate) fn internal_get_subscription(
+        &self,
+        subscription_name: &SubscriptionName,
+    ) -> Subscription {
         Subscription::from(
             self.subscriptions
                 .get(subscription_name)
@@ -139,9 +169,9 @@ impl SocialPremium {
 
     fn get_subscription_price(&self, subscription: &Subscription, is_wholesale: bool) -> u128 {
         if is_wholesale {
-            subscription.price
-        } else {
             subscription.price_wholesale
+        } else {
+            subscription.price
         }
     }
 
@@ -151,7 +181,7 @@ impl SocialPremium {
         amount: u128,
     ) -> u128 {
         let price =
-            self.get_subscription_price(subscription, amount > subscription.price_wholesale);
+            self.get_subscription_price(subscription, amount >= subscription.price_wholesale);
 
         (U256::from(amount) * U256::from(YEAR_IN_MS) / U256::from(price)).as_u128()
     }

@@ -8,7 +8,6 @@ pub const GAS_FOR_AFTER_SOCIAL_GET: Gas = Gas(Gas::ONE_TERA.0 * 80);
 pub const DEPOSIT_FOR_SOCIAL_SET: Balance = 50_000_000_000_000_000_000_000;
 pub const MIN_DEPOSIT: Balance = 1_000_000_000_000_000_000_000_000;
 
-
 #[derive(Serialize, Deserialize, Default)]
 #[serde(crate = "near_sdk::serde")]
 pub struct GetOptions {
@@ -25,22 +24,28 @@ pub trait ExtSocial {
 
 #[ext_contract(ext_self)]
 pub trait ExtSocialPremium {
-    fn after_social_get(
+    fn purchase_after_social_get(
         &mut self,
         #[callback_result] value: Result<Value, PromiseError>,
         receiver_id: AccountId,
         subscription_name: String,
         amount: U128,
     );
+
+    fn transfer_after_social_get(
+        &mut self,
+        #[callback_result] value: Result<Value, PromiseError>,
+        sender_id: AccountId,
+        receiver_id: AccountId,
+        subscription_name: String,
+    );
 }
 
 #[near_bindgen]
 impl SocialPremium {
-
-
     #[payable]
     #[private]
-    pub fn after_social_get(
+    pub fn purchase_after_social_get(
         &mut self,
         #[callback_result] value: Result<Value, PromiseError>,
         receiver_id: AccountId,
@@ -82,36 +87,99 @@ impl SocialPremium {
 
             self.internal_set_subscription_holder(
                 subscription_name,
-                receiver_id,
-                subscription_timestamp,
+                vec![SubscriptionData {
+                    receiver_id,
+                    timestamp: subscription_timestamp,
+                }],
             );
         }
     }
+
+    pub fn transfer_after_social_get(
+        &mut self,
+        #[callback_result] value: Result<Value, PromiseError>,
+        sender_id: AccountId,
+        receiver_id: AccountId,
+        subscription_name: SubscriptionName,
+    ) {
+        if let Ok(mut value) = value {
+            let keys = value.as_object_mut().expect("Data is not a JSON object");
+
+            let now: u128 = env::block_timestamp_ms().into();
+            let now_string = now.to_string();
+
+            if keys.is_empty() {
+                panic!("ERR_SENDER_SUBSCRIPTION_NOT_FOUND");
+            } else {
+                let badge = value
+                    .get(SOCIAL_PREMIUM_ACCOUNT_ID.to_string())
+                    .expect("ERR_NO_DATA");
+                let subscriptions = badge.get("badge".to_string()).expect("ERR_NO_DATA");
+                let subscription = subscriptions
+                    .get(subscription_name.to_string())
+                    .expect("ERR_NO_DATA");
+                let accounts = subscription
+                    .get("accounts".to_string())
+                    .expect("ERR_NO_DATA");
+
+                let sender_paid_until_str =
+                    if let Some(paid_until) = accounts.get(sender_id.to_string()) {
+                        paid_until.as_str().unwrap()
+                    } else {
+                        panic!("ERR_SENDER_SUBSCRIPTION_NOT_FOUND")
+                    };
+
+                let receiver_paid_until_str =
+                    if let Some(paid_until) = accounts.get(receiver_id.to_string()) {
+                        paid_until.as_str().unwrap()
+                    } else {
+                        now_string.as_str()
+                    };
+
+                let sender_paid_until = sender_paid_until_str.to_string().parse::<u128>().unwrap();
+                let receiver_paid_until =
+                    receiver_paid_until_str.to_string().parse::<u128>().unwrap();
+
+                assert!(sender_paid_until > now, "ERR_SENDER_SUBSCRIPTION_NOT_FOUND");
+
+                let sender_previous_purchased_ms = sender_paid_until - now;
+
+                let receiver_timestamp = sender_previous_purchased_ms + receiver_paid_until;
+
+                self.operations += 1;
+
+                self.internal_set_subscription_holder(
+                    subscription_name,
+                    vec![
+                        SubscriptionData {
+                            receiver_id: sender_id,
+                            timestamp: now,
+                        },
+                        SubscriptionData {
+                            receiver_id,
+                            timestamp: receiver_timestamp,
+                        },
+                    ],
+                );
+            };
+        }
+    }
+}
+
+struct SubscriptionData {
+    receiver_id: AccountId,
+    timestamp: u128,
 }
 
 impl SocialPremium {
     fn internal_set_subscription_holder(
         &mut self,
         subscription_name: SubscriptionName,
-        receiver_id: AccountId,
-        timestamp: u128,
+        subscriptions: Vec<SubscriptionData>,
     ) {
-        let mut receiver_data: Map<String, Value> = Map::new();
-        receiver_data.insert(
-            receiver_id.to_string(),
-            Value::String(timestamp.to_string()),
-        );
-
-        let mut accounts_data: Map<String, Value> = Map::new();
-        accounts_data.insert("accounts".to_string(), Value::Object(receiver_data));
-
-        let mut subscription_data: Map<String, Value> = Map::new();
-        subscription_data.insert(subscription_name, Value::Object(accounts_data));
-
-        let mut badge_data: Map<String, Value> = Map::new();
-        badge_data.insert("badge".to_string(), Value::Object(subscription_data));
-
         let mut data: Map<String, Value> = Map::new();
+
+        let badge_data = get_badge_data(&subscription_name, subscriptions);
         data.insert(
             SOCIAL_PREMIUM_ACCOUNT_ID.to_string(),
             Value::Object(badge_data),
@@ -170,3 +238,26 @@ impl SocialPremium {
     }
 }
 
+fn get_badge_data(
+    subscription_name: &String,
+    subscriptions: Vec<SubscriptionData>,
+) -> Map<String, Value> {
+    let mut receiver_data: Map<String, Value> = Map::new();
+    for subscription in subscriptions {
+        receiver_data.insert(
+            subscription.receiver_id.to_string(),
+            Value::String(subscription.timestamp.to_string()),
+        );
+    }
+
+    let mut accounts_data: Map<String, Value> = Map::new();
+    accounts_data.insert("accounts".to_string(), Value::Object(receiver_data));
+
+    let mut subscription_data: Map<String, Value> = Map::new();
+    subscription_data.insert(subscription_name.to_owned(), Value::Object(accounts_data));
+
+    let mut badge_data: Map<String, Value> = Map::new();
+    badge_data.insert("badge".to_string(), Value::Object(subscription_data));
+
+    badge_data
+}
