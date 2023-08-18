@@ -161,6 +161,8 @@ impl SocialPremium {
         self.operations
     }
 
+    pub fn get_lock(&self, account_id: AccountId) -> Option<BlockHeight> { self.account_locks.get(&account_id) }
+
     pub fn withdraw_deposits(&mut self, amount: U128) -> Promise {
         self.assert_owner();
 
