@@ -152,8 +152,7 @@ impl SocialPremium {
                     };
 
                 let sender_paid_until = sender_paid_until_str.to_string().parse::<u128>().unwrap();
-                let receiver_paid_until =
-                    receiver_paid_until_str.to_string().parse::<u128>().unwrap();
+                let receiver_paid_until = std::cmp::max(now, receiver_paid_until_str.to_string().parse::<u128>().unwrap());
 
                 assert!(sender_paid_until > now, "ERR_SENDER_SUBSCRIPTION_NOT_FOUND");
 
