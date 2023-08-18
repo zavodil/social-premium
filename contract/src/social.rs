@@ -218,7 +218,7 @@ impl SocialPremium {
 
         let mut badge_data: Map<String, Value> = Map::new();
         badge_data.insert(
-            "title".to_string(),
+            "name".to_string(),
             Value::String(subscription.title.to_string()),
         );
         badge_data.insert(

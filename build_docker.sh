@@ -11,7 +11,7 @@ if docker ps -a --format '{{.Names}}' | grep -Eq "^${NAME}\$"; then
     echo "Container exists"
 else
 docker create \
-     --mount type=bind,source=$DIR/..,target=/host \
+     --mount type=bind,source=$DIR,target=/host \
      --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
      --name=$NAME \
      -w /host/contract \
