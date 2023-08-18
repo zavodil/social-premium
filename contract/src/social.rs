@@ -5,6 +5,7 @@ use near_sdk::serde_json::{Map, Value};
 pub const GAS_FOR_SOCIAL_GET: Gas = Gas(Gas::ONE_TERA.0 * 10);
 pub const GAS_FOR_SOCIAL_SET: Gas = Gas(Gas::ONE_TERA.0 * 40);
 pub const GAS_FOR_AFTER_SOCIAL_GET: Gas = Gas(Gas::ONE_TERA.0 * 80);
+pub const GAS_FOR_UNLOCK: Gas = Gas(Gas::ONE_TERA.0 * 10);
 pub const DEPOSIT_FOR_SOCIAL_SET: Balance = 50_000_000_000_000_000_000_000;
 pub const MIN_DEPOSIT: Balance = 1_000_000_000_000_000_000_000_000;
 
@@ -102,13 +103,10 @@ impl SocialPremium {
             self.internal_set_subscription_holder(
                 subscription_name,
                 vec![SubscriptionData {
-                    receiver_id: receiver_id.clone(),
+                    receiver_id,
                     timestamp: subscription_timestamp,
                 }],
-                vec![receiver_id],
-            );
-        } else {
-            self.internal_unlock_account(&receiver_id);
+            ).as_return();
         }
     }
 
@@ -169,20 +167,16 @@ impl SocialPremium {
                     subscription_name,
                     vec![
                         SubscriptionData {
-                            receiver_id: sender_id.clone(),
+                            receiver_id: sender_id,
                             timestamp: now,
                         },
                         SubscriptionData {
-                            receiver_id: receiver_id.clone(),
+                            receiver_id,
                             timestamp: receiver_timestamp,
                         },
                     ],
-                    vec![sender_id, receiver_id],
-                );
-            };
-        } else {
-            self.internal_unlock_account(&sender_id);
-            self.internal_unlock_account(&receiver_id);
+                ).as_return();
+            }
         }
     }
 }
@@ -197,8 +191,7 @@ impl SocialPremium {
         &mut self,
         subscription_name: SubscriptionName,
         subscriptions: Vec<SubscriptionData>,
-        accounts: Vec<AccountId>,
-    ) {
+    ) -> Promise {
         let mut data: Map<String, Value> = Map::new();
 
         let badge_data = get_badge_data(&subscription_name, subscriptions);
@@ -216,11 +209,6 @@ impl SocialPremium {
                     refund_unused_deposit: true,
                 },
             )
-            .then(
-                ext_self::ext(env::current_account_id())
-                    .with_static_gas(GAS_FOR_AFTER_SOCIAL_GET)
-                    .unlock_accounts(accounts),
-            );
     }
 
     pub fn internal_set_subscription(&mut self, subscription_name: SubscriptionName) {

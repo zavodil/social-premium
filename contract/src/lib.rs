@@ -61,7 +61,7 @@ impl SocialPremium {
         let deposit = env::attached_deposit();
         assert!(deposit >= MIN_DEPOSIT, "Deposit {} required", MIN_DEPOSIT);
 
-        self.assert_account_unlocked(&receiver_id);
+        self.lock_account(&receiver_id);
         self.assert_subscription(&name);
 
         let keys: Vec<String> = vec![format!(
@@ -75,7 +75,11 @@ impl SocialPremium {
             .then(
                 ext_self::ext(env::current_account_id())
                     .with_static_gas(GAS_FOR_AFTER_SOCIAL_GET)
-                    .purchase_after_social_get(receiver_id, name, U128::from(deposit)),
+                    .purchase_after_social_get(receiver_id.clone(), name, U128::from(deposit)),
+            ).then(
+                ext_self::ext(env::current_account_id())
+                    .with_static_gas(GAS_FOR_UNLOCK)
+                    .unlock_accounts(vec![receiver_id]),
             )
     }
 
@@ -88,8 +92,8 @@ impl SocialPremium {
         self.assert_subscription(&name);
 
         assert_ne!(receiver_id, sender_id, "ERR_SENDER_IS_RECEIVER");
-        self.assert_account_unlocked(&receiver_id);
-        self.assert_account_unlocked(&sender_id);
+        self.lock_account(&receiver_id);
+        self.lock_account(&sender_id);
 
         let keys: Vec<String> = vec![
             format!(
@@ -108,8 +112,13 @@ impl SocialPremium {
             .then(
                 ext_self::ext(env::current_account_id())
                     .with_static_gas(GAS_FOR_AFTER_SOCIAL_GET)
-                    .transfer_after_social_get(sender_id, receiver_id, name),
-            )
+                    .transfer_after_social_get(sender_id.clone(), receiver_id.clone(), name),
+            ).then(
+            ext_self::ext(env::current_account_id())
+                .with_static_gas(GAS_FOR_UNLOCK)
+                .unlock_accounts(vec![sender_id, receiver_id]),
+        )
+
     }
 
     pub fn add_subscription(

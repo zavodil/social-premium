@@ -9,11 +9,11 @@ impl SocialPremium {
         );
     }
 
-    pub fn assert_account_unlocked(&self, account_id: &AccountId) {
-        let account_lock: BlockHeight = self.account_locks.get(account_id).unwrap_or(0);
+    pub fn lock_account(&mut self, account_id: &AccountId) {
+        let account_lock: BlockHeight = self.account_locks.insert(account_id, &env::block_height()).unwrap_or(0);
 
         assert!(
-            account_lock >= env::block_height() + BLOCKS_NUM_TO_LOCK_ACCOUNT,
+            account_lock + BLOCKS_NUM_TO_LOCK_ACCOUNT <= env::block_height(),
             "ERR_ACCOUNT_LOCKED"
         );
     }
