@@ -16,10 +16,16 @@ pub struct GetOptions {
     pub return_deleted: Option<bool>,
 }
 
+#[derive(Serialize, Deserialize, Default)]
+#[serde(crate = "near_sdk::serde")]
+pub struct SetOptions {
+    pub refund_unused_deposit: bool,
+}
+
 #[ext_contract(ext_social)]
 pub trait ExtSocial {
     fn get(self, keys: Vec<String>, options: Option<GetOptions>) -> Value;
-    fn set(&mut self, data: Value);
+    fn set(&mut self, data: Value, options: SetOptions);
 }
 
 #[ext_contract(ext_self)]
@@ -39,11 +45,19 @@ pub trait ExtSocialPremium {
         receiver_id: AccountId,
         subscription_name: String,
     );
+
+    fn unlock_accounts(&mut self, accounts: Vec<AccountId>);
 }
 
 #[near_bindgen]
 impl SocialPremium {
-    #[payable]
+    #[private]
+    pub fn unlock_accounts(&mut self, accounts: Vec<AccountId>) {
+        for account_id in accounts {
+            self.internal_unlock_account(&account_id);
+        }
+    }
+
     #[private]
     pub fn purchase_after_social_get(
         &mut self,
@@ -88,10 +102,13 @@ impl SocialPremium {
             self.internal_set_subscription_holder(
                 subscription_name,
                 vec![SubscriptionData {
-                    receiver_id,
+                    receiver_id: receiver_id.clone(),
                     timestamp: subscription_timestamp,
                 }],
+                vec![receiver_id],
             );
+        } else {
+            self.internal_unlock_account(&receiver_id);
         }
     }
 
@@ -152,16 +169,20 @@ impl SocialPremium {
                     subscription_name,
                     vec![
                         SubscriptionData {
-                            receiver_id: sender_id,
+                            receiver_id: sender_id.clone(),
                             timestamp: now,
                         },
                         SubscriptionData {
-                            receiver_id,
+                            receiver_id: receiver_id.clone(),
                             timestamp: receiver_timestamp,
                         },
                     ],
+                    vec![sender_id, receiver_id],
                 );
             };
+        } else {
+            self.internal_unlock_account(&sender_id);
+            self.internal_unlock_account(&receiver_id);
         }
     }
 }
@@ -176,6 +197,7 @@ impl SocialPremium {
         &mut self,
         subscription_name: SubscriptionName,
         subscriptions: Vec<SubscriptionData>,
+        accounts: Vec<AccountId>,
     ) {
         let mut data: Map<String, Value> = Map::new();
 
@@ -188,7 +210,17 @@ impl SocialPremium {
         ext_social::ext(AccountId::new_unchecked(SOCIAL_DB_ACCOUNT_ID.to_string()))
             .with_static_gas(GAS_FOR_SOCIAL_SET)
             .with_attached_deposit(DEPOSIT_FOR_SOCIAL_SET)
-            .set(Value::Object(data));
+            .set(
+                Value::Object(data),
+                SetOptions {
+                    refund_unused_deposit: true,
+                },
+            )
+            .then(
+                ext_self::ext(env::current_account_id())
+                    .with_static_gas(GAS_FOR_AFTER_SOCIAL_GET)
+                    .unlock_accounts(accounts),
+            );
     }
 
     pub fn internal_set_subscription(&mut self, subscription_name: SubscriptionName) {
@@ -234,7 +266,12 @@ impl SocialPremium {
         ext_social::ext(AccountId::new_unchecked(SOCIAL_DB_ACCOUNT_ID.to_string()))
             .with_static_gas(GAS_FOR_SOCIAL_SET)
             .with_attached_deposit(DEPOSIT_FOR_SOCIAL_SET)
-            .set(Value::Object(data));
+            .set(
+                Value::Object(data),
+                SetOptions {
+                    refund_unused_deposit: true,
+                },
+            );
     }
 }
 

@@ -1,14 +1,18 @@
 use near_sdk::json_types::U128;
 use near_sdk::{
     borsh::{self, BorshDeserialize, BorshSerialize},
+    collections::LookupMap,
     collections::UnorderedMap,
     env, ext_contract, near_bindgen,
     serde::{Deserialize, Serialize},
-    AccountId, Balance, BorshStorageKey, Gas, PanicOnDefault, Promise, PromiseError, ONE_YOCTO,
+    AccountId, Balance, BlockHeight, BorshStorageKey, Gas, PanicOnDefault, Promise, PromiseError,
+    ONE_YOCTO,
 };
 
 const SOCIAL_DB_ACCOUNT_ID: &str = "social.near";
 const SOCIAL_PREMIUM_ACCOUNT_ID: &str = "premium.social.near";
+
+const BLOCKS_NUM_TO_LOCK_ACCOUNT: BlockHeight = 60;
 
 mod social;
 mod subscription;
@@ -25,6 +29,7 @@ const YEAR_IN_MS: u128 = 31556926000;
 #[derive(BorshSerialize, BorshStorageKey)]
 enum StorageKey {
     Subscriptions,
+    AccountLocks,
 }
 
 #[near_bindgen]
@@ -32,6 +37,7 @@ enum StorageKey {
 pub struct SocialPremium {
     owner_id: AccountId,
     subscriptions: UnorderedMap<SubscriptionName, VSubscription>,
+    account_locks: LookupMap<AccountId, BlockHeight>,
     deposits: Balance,
     operations: u64,
 }
@@ -43,6 +49,7 @@ impl SocialPremium {
         Self {
             owner_id,
             subscriptions: UnorderedMap::new(StorageKey::Subscriptions),
+            account_locks: LookupMap::new(StorageKey::AccountLocks),
             deposits: 0,
             operations: 0,
         }
@@ -53,6 +60,9 @@ impl SocialPremium {
         let receiver_id = receiver_id.unwrap_or(env::predecessor_account_id());
         let deposit = env::attached_deposit();
         assert!(deposit >= MIN_DEPOSIT, "Deposit {} required", MIN_DEPOSIT);
+
+        self.assert_account_unlocked(&receiver_id);
+        self.assert_subscription(&name);
 
         let keys: Vec<String> = vec![format!(
             "{}/badge/{}/accounts/{}",
@@ -74,6 +84,12 @@ impl SocialPremium {
         assert_eq!(env::attached_deposit(), ONE_YOCTO, "ERR_ONE_YOCTO_REQUIRED");
 
         let sender_id = env::predecessor_account_id();
+
+        self.assert_subscription(&name);
+
+        assert_ne!(receiver_id, sender_id, "ERR_SENDER_IS_RECEIVER");
+        self.assert_account_unlocked(&receiver_id);
+        self.assert_account_unlocked(&sender_id);
 
         let keys: Vec<String> = vec![
             format!(
@@ -165,6 +181,10 @@ impl SocialPremium {
                 .get(subscription_name)
                 .expect("ERR_SUBSCRIPTION_NOT_FOUND"),
         )
+    }
+
+    pub(crate) fn internal_unlock_account(&mut self, account_id: &AccountId) {
+        self.account_locks.remove(account_id);
     }
 
     fn get_subscription_price(&self, subscription: &Subscription, is_wholesale: bool) -> u128 {
