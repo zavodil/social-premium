@@ -239,6 +239,10 @@ impl SocialPremium {
         U128::from(self.total_referral_rewards)
     }
 
+    pub fn get_deposits_without_referral_fees(&self) -> U128 {
+        U128::from(self.deposits - self.total_referral_rewards)
+    }
+
     pub fn get_affiliates(&self, referral_account_id: ReferralAccountId) -> Vec<AccountId> {
         self.referrals
             .into_iter()
