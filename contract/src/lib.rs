@@ -49,7 +49,7 @@ pub struct SocialPremium {
     account_locks: LookupMap<AccountId, BlockHeight>,
     // total deposits
     deposits: Balance,
-    // num of performed operation to buy social
+    // num of performed operation to buy premium
     operations: u64,
     // list of accounts and their last referrals
     referrals: UnorderedMap<AccountId, ReferralAccountId>,

@@ -5,6 +5,9 @@ impl SocialPremium {
     #[init(ignore_state)]
     #[allow(dead_code)]
     pub fn migrate(referral_fee: FeeFraction, premium_referral_fee: FeeFraction) -> Self {
+        referral_fee.assert_valid();
+        premium_referral_fee.assert_valid();
+
         #[derive(BorshDeserialize)]
         struct OldContract {
             owner_id: AccountId,
