@@ -37,6 +37,7 @@ pub trait ExtSocialPremium {
         receiver_id: AccountId,
         subscription_name: String,
         amount: U128,
+        referral_account_id: Option<ReferralAccountId>,
     );
 
     fn transfer_after_social_get(
@@ -66,23 +67,79 @@ impl SocialPremium {
         receiver_id: AccountId,
         subscription_name: SubscriptionName,
         amount: U128,
+        referral_account_id: Option<ReferralAccountId>,
     ) {
         if let Ok(mut value) = value {
             let keys = value.as_object_mut().expect("Data is not a JSON object");
+
+            let mut referral_is_premium = false;
 
             let now: u128 = env::block_timestamp_ms().into();
 
             let paid_until: u128 = if keys.is_empty() {
                 now
             } else {
-                let badge = value.get(SOCIAL_PREMIUM_ACCOUNT_ID.to_string()).expect("ERR_NO_DATA");
+                let badge = value
+                    .get(SOCIAL_PREMIUM_ACCOUNT_ID.to_string())
+                    .expect("ERR_NO_DATA");
                 let subscriptions = badge.get("badge".to_string()).expect("ERR_NO_DATA");
-                let subscription = subscriptions.get(subscription_name.to_string()).expect("ERR_NO_DATA");
-                let accounts = subscription.get("accounts".to_string()).expect("ERR_NO_DATA");
-                let paid_until = accounts.get(receiver_id.to_string()).expect("ERR_NO_DATA").as_str().unwrap().to_string();
+                let subscription = subscriptions
+                    .get(subscription_name.to_string())
+                    .expect("ERR_NO_DATA");
+                let accounts = subscription
+                    .get("accounts".to_string())
+                    .expect("ERR_NO_DATA");
+                let paid_until = accounts
+                    .get(receiver_id.to_string())
+                    .expect("ERR_NO_DATA")
+                    .as_str()
+                    .unwrap()
+                    .to_string();
+
+                if let Some(referral_id) = referral_account_id.clone() {
+                    let referral_paid_until =
+                        if let Some(referral_paid_until_value) = accounts.get(referral_id.to_string()) {
+                            referral_paid_until_value
+                                .as_str()
+                                .unwrap()
+                                .parse::<u128>()
+                                .unwrap()
+                        } else {
+                            0
+                        };
+
+                    referral_is_premium = referral_paid_until > now;
+                }
 
                 paid_until.parse::<u128>().unwrap()
             };
+
+            // store affiliate reward
+            if let Some(user_referral_id) = referral_account_id {
+                self.referrals.insert(&receiver_id, &user_referral_id);
+
+                let prev_referral_reward = self
+                    .referral_rewards
+                    .get(&user_referral_id)
+                    .unwrap_or_default();
+                let referral_reward = if referral_is_premium {
+                    self.premium_referral_fee.multiply(amount.0)
+                } else {
+                    self.referral_fee.multiply(amount.0)
+                };
+                self.referral_rewards
+                    .insert(&user_referral_id, &(prev_referral_reward + referral_reward));
+                self.total_referral_rewards += referral_reward;
+
+                log!(
+                    "{}Referral reward for {}: {} yNEAR",
+                    if referral_is_premium { "Premium " } else { "" },
+                    user_referral_id,
+                    referral_reward.to_string()
+                );
+
+                Promise::new(user_referral_id).transfer(referral_reward);
+            }
 
             let subscription = self.internal_get_subscription(&subscription_name);
 
@@ -106,7 +163,8 @@ impl SocialPremium {
                     receiver_id,
                     timestamp: subscription_timestamp,
                 }],
-            ).as_return();
+            )
+            .as_return();
         }
     }
 
@@ -152,7 +210,10 @@ impl SocialPremium {
                     };
 
                 let sender_paid_until = sender_paid_until_str.to_string().parse::<u128>().unwrap();
-                let receiver_paid_until = std::cmp::max(now, receiver_paid_until_str.to_string().parse::<u128>().unwrap());
+                let receiver_paid_until = std::cmp::max(
+                    now,
+                    receiver_paid_until_str.to_string().parse::<u128>().unwrap(),
+                );
 
                 assert!(sender_paid_until > now, "ERR_SENDER_SUBSCRIPTION_NOT_FOUND");
 
@@ -174,7 +235,8 @@ impl SocialPremium {
                             timestamp: receiver_timestamp,
                         },
                     ],
-                ).as_return();
+                )
+                .as_return();
             }
         }
     }
