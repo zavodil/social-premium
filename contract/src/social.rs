@@ -4,7 +4,7 @@ use near_sdk::serde_json::{Map, Value};
 
 pub const GAS_FOR_SOCIAL_GET: Gas = Gas(Gas::ONE_TERA.0 * 10);
 pub const GAS_FOR_SOCIAL_SET: Gas = Gas(Gas::ONE_TERA.0 * 40);
-pub const GAS_FOR_AFTER_SOCIAL_GET: Gas = Gas(Gas::ONE_TERA.0 * 80);
+pub const GAS_FOR_AFTER_SOCIAL_GET: Gas = Gas(Gas::ONE_TERA.0 * 85);
 pub const GAS_FOR_UNLOCK: Gas = Gas(Gas::ONE_TERA.0 * 10);
 pub const DEPOSIT_FOR_SOCIAL_SET: Balance = 50_000_000_000_000_000_000_000;
 pub const MIN_DEPOSIT: Balance = 1_000_000_000_000_000_000_000_000;
