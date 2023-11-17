@@ -2,6 +2,7 @@ use crate::*;
 
 #[near_bindgen]
 impl SocialPremium {
+    #[private]
     #[init(ignore_state)]
     #[allow(dead_code)]
     pub fn migrate(referral_fee: FeeFraction, premium_referral_fee: FeeFraction) -> Self {
@@ -18,12 +19,6 @@ impl SocialPremium {
         }
 
         let old_contract: OldContract = env::state_read().expect("Old state doesn't exist");
-
-        assert_eq!(
-            env::predecessor_account_id(),
-            old_contract.owner_id,
-            "ERR_NO_ACCESS"
-        );
 
         Self {
             owner_id: old_contract.owner_id,
