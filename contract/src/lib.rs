@@ -3,7 +3,7 @@ use near_sdk::{
     borsh::{self, BorshDeserialize, BorshSerialize},
     collections::LookupMap,
     collections::UnorderedMap,
-    env, ext_contract, near_bindgen,
+    env, ext_contract, log, near_bindgen,
     serde::{Deserialize, Serialize},
     AccountId, Balance, BlockHeight, BorshStorageKey, Gas, PanicOnDefault, Promise, PromiseError,
     ONE_YOCTO,
@@ -11,17 +11,22 @@ use near_sdk::{
 
 const SOCIAL_DB_ACCOUNT_ID: &str = "social.near";
 const SOCIAL_PREMIUM_ACCOUNT_ID: &str = "premium.social.near";
+// const SOCIAL_DB_ACCOUNT_ID: &str = "v1.social08.testnet";
+// const SOCIAL_PREMIUM_ACCOUNT_ID: &str = "test_alice.testnet";
 
 const BLOCKS_NUM_TO_LOCK_ACCOUNT: BlockHeight = 60;
 
+mod migration;
 mod social;
 mod subscription;
 mod utils;
 
 use crate::social::*;
 use crate::subscription::*;
+use crate::utils::FeeFraction;
 
 type SubscriptionName = String;
+type ReferralAccountId = AccountId;
 
 const SOCIAL_PREMIUM_TREASURY_ACCOUNT_ID: &str = "treasury.premium.social.near";
 const YEAR_IN_MS: u128 = 31556926000;
@@ -30,44 +35,95 @@ const YEAR_IN_MS: u128 = 31556926000;
 enum StorageKey {
     Subscriptions,
     AccountLocks,
+    Referrals,
+    ReferralRewards,
 }
 
 #[near_bindgen]
 #[derive(BorshDeserialize, BorshSerialize, PanicOnDefault)]
 pub struct SocialPremium {
     owner_id: AccountId,
+    // list of available subscriptions
     subscriptions: UnorderedMap<SubscriptionName, VSubscription>,
+    // list of account locks to avoid callback collisions
     account_locks: LookupMap<AccountId, BlockHeight>,
+    // total deposits
     deposits: Balance,
+    // num of performed operation to buy premium
     operations: u64,
+    // list of accounts and their last referrals
+    referrals: UnorderedMap<AccountId, ReferralAccountId>,
+    // referral fee for regular referrals
+    referral_fee: FeeFraction,
+    // referral fee for referrals with active premium
+    premium_referral_fee: FeeFraction,
+    // historical rewards for each referral
+    referral_rewards: LookupMap<ReferralAccountId, Balance>,
+    // total historical rewards
+    total_referral_rewards: Balance,
 }
 
 #[near_bindgen]
 impl SocialPremium {
     #[init]
-    pub fn new(owner_id: AccountId) -> Self {
+    pub fn new(
+        owner_id: AccountId,
+        referral_fee: FeeFraction,
+        premium_referral_fee: FeeFraction,
+    ) -> Self {
+        referral_fee.assert_valid();
+        premium_referral_fee.assert_valid();
+
         Self {
             owner_id,
             subscriptions: UnorderedMap::new(StorageKey::Subscriptions),
             account_locks: LookupMap::new(StorageKey::AccountLocks),
             deposits: 0,
             operations: 0,
+            referrals: UnorderedMap::new(StorageKey::Referrals),
+            referral_fee,
+            premium_referral_fee,
+            referral_rewards: LookupMap::new(StorageKey::ReferralRewards),
+            total_referral_rewards: 0,
         }
     }
 
     #[payable]
-    pub fn purchase(&mut self, name: SubscriptionName, receiver_id: Option<AccountId>) -> Promise {
+    pub fn purchase(
+        &mut self,
+        name: SubscriptionName,
+        receiver_id: Option<AccountId>,
+        referral_id: Option<ReferralAccountId>,
+    ) -> Promise {
         let receiver_id = receiver_id.unwrap_or(env::predecessor_account_id());
+
+        let referral_account_id = if let Some(referral_id) = referral_id {
+            // referral id was provided in the request
+            assert!(referral_id != receiver_id, "ERR_SELF_REFERRAL_NOT_ALLOWED");
+            Some(referral_id)
+        } else {
+            // previously stored referral id
+            self.referrals.get(&receiver_id)
+        };
+
         let deposit = env::attached_deposit();
         assert!(deposit >= MIN_DEPOSIT, "Deposit {} required", MIN_DEPOSIT);
 
         self.lock_account(&receiver_id);
         self.assert_subscription(&name);
 
-        let keys: Vec<String> = vec![format!(
+        let mut keys: Vec<String> = vec![format!(
             "{}/badge/{}/accounts/{}",
             SOCIAL_PREMIUM_ACCOUNT_ID, name, receiver_id
         )];
+
+        if let Some(referral_id) = referral_account_id.clone() {
+            // check if referral_id is premium
+            keys.push(format!(
+                "{}/badge/{}/accounts/{}",
+                SOCIAL_PREMIUM_ACCOUNT_ID, name, referral_id
+            ))
+        }
 
         ext_social::ext(AccountId::new_unchecked(SOCIAL_DB_ACCOUNT_ID.to_string()))
             .with_static_gas(GAS_FOR_SOCIAL_GET)
@@ -75,8 +131,14 @@ impl SocialPremium {
             .then(
                 ext_self::ext(env::current_account_id())
                     .with_static_gas(GAS_FOR_AFTER_SOCIAL_GET)
-                    .purchase_after_social_get(receiver_id.clone(), name, U128::from(deposit)),
-            ).then(
+                    .purchase_after_social_get(
+                        receiver_id.clone(),
+                        name,
+                        U128::from(deposit),
+                        referral_account_id,
+                    ),
+            )
+            .then(
                 ext_self::ext(env::current_account_id())
                     .with_static_gas(GAS_FOR_UNLOCK)
                     .unlock_accounts(vec![receiver_id]),
@@ -113,12 +175,24 @@ impl SocialPremium {
                 ext_self::ext(env::current_account_id())
                     .with_static_gas(GAS_FOR_AFTER_SOCIAL_GET)
                     .transfer_after_social_get(sender_id.clone(), receiver_id.clone(), name),
-            ).then(
-            ext_self::ext(env::current_account_id())
-                .with_static_gas(GAS_FOR_UNLOCK)
-                .unlock_accounts(vec![sender_id, receiver_id]),
-        )
+            )
+            .then(
+                ext_self::ext(env::current_account_id())
+                    .with_static_gas(GAS_FOR_UNLOCK)
+                    .unlock_accounts(vec![sender_id, receiver_id]),
+            )
+    }
 
+    pub fn set_referral_fee(&mut self, referral_fee: FeeFraction) {
+        self.assert_owner();
+        referral_fee.assert_valid();
+        self.referral_fee = referral_fee;
+    }
+
+    pub fn set_premium_referral_fee(&mut self, premium_referral_fee: FeeFraction) {
+        self.assert_owner();
+        premium_referral_fee.assert_valid();
+        self.premium_referral_fee = premium_referral_fee;
     }
 
     pub fn add_subscription(
@@ -153,6 +227,30 @@ impl SocialPremium {
             .into()
     }
 
+    pub fn get_referral_reward(&self, referral_account_id: ReferralAccountId) -> U128 {
+        U128::from(
+            self.referral_rewards
+                .get(&referral_account_id)
+                .unwrap_or_default(),
+        )
+    }
+
+    pub fn get_total_referral_rewards(&self) -> U128 {
+        U128::from(self.total_referral_rewards)
+    }
+
+    pub fn get_deposits_without_referral_fees(&self) -> U128 {
+        U128::from(self.deposits - self.total_referral_rewards)
+    }
+
+    pub fn get_affiliates(&self, referral_account_id: ReferralAccountId) -> Vec<AccountId> {
+        self.referrals
+            .into_iter()
+            .filter(|(_, _referral_account_id)| (referral_account_id == *_referral_account_id))
+            .map(|(user_account_id, _)| user_account_id)
+            .collect()
+    }
+
     pub fn get_deposits(&self) -> U128 {
         U128::from(self.deposits)
     }
@@ -161,19 +259,38 @@ impl SocialPremium {
         self.operations
     }
 
-    pub fn get_lock(&self, account_id: AccountId) -> Option<BlockHeight> { self.account_locks.get(&account_id) }
+    pub fn get_lock(&self, account_id: AccountId) -> Option<BlockHeight> {
+        self.account_locks.get(&account_id)
+    }
 
-    pub fn withdraw_deposits(&mut self, amount: U128) -> Promise {
+    pub fn get_referral_id(&self, account_id: AccountId) -> Option<AccountId> {
+        self.referrals.get(&account_id)
+    }
+
+    pub fn get_referral_fee(&self) -> FeeFraction {
+        self.referral_fee.clone()
+    }
+
+    pub fn get_premium_referral_fee(&self) -> FeeFraction {
+        self.premium_referral_fee.clone()
+    }
+
+    pub fn withdraw_deposits(
+        &mut self,
+        amount: U128,
+        destination_account_id: Option<AccountId>,
+    ) -> Promise {
         self.assert_owner();
 
         assert!(self.deposits >= amount.0, "ERR_NOT_ENOUGH_DEPOSITS");
 
         self.deposits -= amount.0;
 
-        Promise::new(AccountId::new_unchecked(
+        let destination_account_id = destination_account_id.unwrap_or(AccountId::new_unchecked(
             SOCIAL_PREMIUM_TREASURY_ACCOUNT_ID.to_string(),
-        ))
-        .transfer(amount.0)
+        ));
+
+        Promise::new(destination_account_id).transfer(amount.0)
     }
 
     pub fn get_purchase_ms(&self, name: SubscriptionName, amount: U128) -> U128 {
