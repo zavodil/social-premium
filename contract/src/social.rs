@@ -91,7 +91,7 @@ impl SocialPremium {
                     .expect("ERR_NO_DATA");
                 let paid_until = accounts
                     .get(receiver_id.to_string())
-                    .expect("ERR_NO_DATA")
+                    .unwrap_or( &Value::from(now))
                     .as_str()
                     .unwrap()
                     .to_string();
@@ -101,7 +101,7 @@ impl SocialPremium {
                         if let Some(referral_paid_until_value) = accounts.get(referral_id.to_string()) {
                             referral_paid_until_value
                                 .as_str()
-                                .unwrap()
+                                .unwrap_or_default()
                                 .parse::<u128>()
                                 .unwrap()
                         } else {
