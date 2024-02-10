@@ -93,7 +93,7 @@ impl SocialPremium {
                     .get(receiver_id.to_string())
                     .unwrap_or( &Value::from(now))
                     .as_str()
-                    .unwrap()
+                    .unwrap_or_default()
                     .to_string();
 
                 if let Some(referral_id) = referral_account_id.clone() {
@@ -111,7 +111,7 @@ impl SocialPremium {
                     referral_is_premium = referral_paid_until > now;
                 }
 
-                paid_until.parse::<u128>().unwrap()
+                paid_until.parse::<u128>().unwrap_or(now)
             };
 
             // store affiliate reward
