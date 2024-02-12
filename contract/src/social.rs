@@ -91,7 +91,7 @@ impl SocialPremium {
                     .expect("ERR_NO_DATA");
                 let paid_until = accounts
                     .get(receiver_id.to_string())
-                    .unwrap_or( &Value::from(now))
+                    .unwrap_or(&Value::from(now))
                     .as_str()
                     .unwrap()
                     .to_string();
