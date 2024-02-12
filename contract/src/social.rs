@@ -93,7 +93,7 @@ impl SocialPremium {
                     .get(receiver_id.to_string())
                     .unwrap_or( &Value::from(now))
                     .as_str()
-                    .unwrap_or_default()
+                    .unwrap()
                     .to_string();
 
                 if let Some(referral_id) = referral_account_id.clone() {
@@ -101,7 +101,7 @@ impl SocialPremium {
                         if let Some(referral_paid_until_value) = accounts.get(referral_id.to_string()) {
                             referral_paid_until_value
                                 .as_str()
-                                .unwrap_or_default()
+                                .unwrap()
                                 .parse::<u128>()
                                 .unwrap()
                         } else {
