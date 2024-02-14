@@ -91,7 +91,7 @@ impl SocialPremium {
                     .expect("ERR_NO_DATA");
                 let paid_until = accounts
                     .get(receiver_id.to_string())
-                    .expect("ERR_NO_DATA")
+                    .unwrap_or(&Value::from(now))
                     .as_str()
                     .unwrap()
                     .to_string();
@@ -111,7 +111,7 @@ impl SocialPremium {
                     referral_is_premium = referral_paid_until > now;
                 }
 
-                paid_until.parse::<u128>().unwrap()
+                paid_until.parse::<u128>().unwrap_or(now)
             };
 
             // store affiliate reward
